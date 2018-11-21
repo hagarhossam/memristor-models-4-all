@@ -1,0 +1,109 @@
+//knowm_verilogA
+`include "disciplines.vams"
+`include "constants.vams"
+module knowmmemristor (p,n,Gcond,NB,R);
+inout p,n;
+output Gcond,NB,R;
+electrical p,n,Gcond,NB,NBA,R;
+parameter real R_OFF=500 from (0:inf);
+parameter real R_ON=1500 from (0:inf);
+parameter real V_OFF=0.3 from (0:inf);
+parameter real V_ON=0.4 from (0:inf);
+real g_off;
+real g_on;
+integer Nb;
+parameter real N=1E6;
+parameter real G_OFF=0.1e-5;
+parameter real G_ON= 3e-3;
+parameter real N_ON_OFF_RATIO=0.8;
+real time_last;
+parameter integer seed =1;
+real G,Ims,Ishottkey;
+real time;
+real time_delta;
+parameter real TC=0.00006;
+parameter real temp=298.0;
+real k=1.3806503E-23;
+real Q=1.60217646E-19;
+parameter real phi =1;
+parameter real schottkeyAlpha=5E-3;
+parameter real schottkeyReverseAlpha=5E-3 ;
+parameter real schottkeyBeta=3 ;
+parameter real schottkeyReverseBeta =3 ;
+real beta=Q/(k*temp);
+real VT=1.0/beta;
+// GAUSSIAN PARAM
+real ua,ub,stdv_a,stdv_b;
+integer Nab,Nba;
+real exponent;
+real alpha;
+real Pa;
+real Pb;
+analog
+begin
+@(initial_step)
+begin
+g_off = G_OFF / N;
+g_on = G_ON / N;
+Nb = (1 - N_ON_OFF_RATIO) * N;
+time_last = 0;
+end
+$strobe ("****************");
+time = $realtime;
+time_delta = time - time_last;
+$strobe ("V(p,n) = ", V(p,n));
+// Probability from OFF to ON state
+exponent = -1 * (V(p,n) - V_ON) / VT;
+alpha = time_delta / TC;
+Pa = alpha / (1.0 + (limexp(exponent)));
+if (Pa > 1.0) begin
+Pa = 1.0;
+end
+else if (Pa < 0.0) begin
+Pa = 0.0;
+end
+$strobe ("Pa = ", Pa);
+// Probability from ON to OFF state
+exponent = -1 * (V(p,n) + V_OFF) / VT;
+alpha = time_delta / TC;
+Pb = alpha * (1 - 1 / ((1.0 + (limexp(exponent)))));
+if (Pb > 1.0) begin
+Pb = 1.0;
+end
+else if (Pb < 0.0) begin
+Pb = 0.0;
+end
+$strobe ("Pb = ", Pb);
+$strobe ("Alpha = ", alpha);
+//mean
+ua=(N-Nb)*Pa;
+ub=Nb*Pb;
+//std_dev
+stdv_a=sqrt((N-Nb)*Pa*(1-Pa));
+stdv_b=sqrt(Nb*Pb*(1-Pb));
+//Reda Mod
+//gaussian
+Nab=floor((($rdist_normal(seed,0,1))*stdv_a)+ua+0.5);
+Nba=floor((($rdist_normal(seed,0,1))*stdv_b)+ub+0.5);
+Nb=Nab-Nba+Nb;
+if(Nb>N)begin
+Nb=N;
+end
+if (Nb<0)
+begin
+Nb=0;
+end
+time_last = time ;
+// conductance
+G = Nb * g_off + (N - Nb) * g_on;
+// G= N*g_off +(g_on-g_off)Nb;
+$strobe ("G = ", G);
+//current
+Ims = G*V(p,n);
+Ishottkey= schottkeyReverseAlpha * (-1 * exp(-1 * schottkeyReverseBeta * V(p,n))) + schottkeyAlpha *(exp(schottkeyBeta * V(p,n)));
+I(p,n)<+phi *Ims + (1-phi)*Ishottkey;
+V(Gcond)<+ G;
+V(R)<+ 1/G ;
+V(NB) <+ Nb;
+end
+endmodule
